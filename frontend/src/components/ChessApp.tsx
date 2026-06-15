@@ -6,6 +6,7 @@ import { io, Socket } from "socket.io-client";
 import { apiRequest, AuthResponse, ChatMessage, GameState, MoveRecord, Room, SOCKET_URL, User } from "@/lib/api";
 
 type AuthMode = "login" | "signup";
+type ThemeMode = "light" | "dark";
 
 const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const pieceGlyphs: Record<string, string> = {
@@ -23,6 +24,19 @@ const pieceGlyphs: Record<string, string> = {
   bk: "♚"
 };
 
+function formatChatTime(sentAt: string) {
+  const sentDate = new Date(sentAt);
+
+  if (Number.isNaN(sentDate.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(sentDate);
+}
+
 export function ChessApp() {
   const socketRef = useRef<Socket | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -37,6 +51,7 @@ export function ChessApp() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const [theme, setTheme] = useState<ThemeMode>("light");
   const [statusMessage, setStatusMessage] = useState("Create or join a room to start playing.");
   const [error, setError] = useState("");
 
@@ -49,11 +64,18 @@ export function ChessApp() {
   useEffect(() => {
     const storedToken = window.localStorage.getItem("chess_token");
     const storedUser = window.localStorage.getItem("chess_user");
+    const storedTheme = window.localStorage.getItem("chess_theme") as ThemeMode | null;
     const inviteCode = new URLSearchParams(window.location.search).get("room");
 
     if (storedToken && storedUser) {
       setToken(storedToken);
       setUser(JSON.parse(storedUser) as User);
+    }
+
+    if (storedTheme === "light" || storedTheme === "dark") {
+      setTheme(storedTheme);
+    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      setTheme("dark");
     }
 
     if (inviteCode) {
@@ -62,6 +84,11 @@ export function ChessApp() {
 
     void loadLeaderboard();
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem("chess_theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     return () => {
@@ -165,6 +192,10 @@ export function ChessApp() {
     setStatusMessage("Signed out.");
   }
 
+  function toggleTheme() {
+    setTheme((currentTheme) => (currentTheme === "light" ? "dark" : "light"));
+  }
+
   function handleSquareClick(square: Square) {
     if (!game || !room || room.status !== "ACTIVE" || game.status !== "IN_PROGRESS") return;
 
@@ -215,12 +246,23 @@ export function ChessApp() {
           <h1>Realtime Chess</h1>
           <p>{statusMessage}</p>
         </div>
-        {user ? (
-          <div className="account">
-            <span>{user.username}</span>
-            <button type="button" onClick={logout}>Sign out</button>
-          </div>
-        ) : null}
+        <div className="topbar-actions">
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-pressed={theme === "dark"}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          >
+            {theme === "dark" ? "Light theme" : "Dark theme"}
+          </button>
+          {user ? (
+            <div className="account">
+              <span>{user.username}</span>
+              <button type="button" onClick={logout}>Sign out</button>
+            </div>
+          ) : null}
+        </div>
       </section>
 
       {error ? <div className="alert">{error}</div> : null}
@@ -409,15 +451,22 @@ function ChatPanel({ currentUserId, messages, value, disabled, onChange, onSubmi
 
   return (
     <section className="chat-panel">
-      <h2>Chat</h2>
+      <div className="chat-header">
+        <h2>Chat</h2>
+        <span>{messages.length ? `${messages.length} message${messages.length === 1 ? "" : "s"}` : "Ready"}</span>
+      </div>
       <div className="chat-messages" aria-live="polite">
         {messages.length ? (
           messages.map((message) => {
             const isMine = message.sender.id === currentUserId;
+            const sentTime = formatChatTime(message.sentAt);
 
             return (
               <div key={message.id} className={`chat-message ${isMine ? "mine" : ""}`}>
-                <span>{isMine ? "You" : message.sender.username}</span>
+                <div className="chat-meta">
+                  <span>{isMine ? "You" : message.sender.username}</span>
+                  {sentTime ? <time dateTime={message.sentAt}>{sentTime}</time> : null}
+                </div>
                 <p>{message.message}</p>
               </div>
             );
