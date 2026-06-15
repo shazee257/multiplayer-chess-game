@@ -54,18 +54,22 @@ export function ChessApp() {
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [statusMessage, setStatusMessage] = useState("Create or join a room to start playing.");
   const [error, setError] = useState("");
+  const [origin, setOrigin] = useState("");
 
   const room = gameState?.room ?? null;
   const game = room?.game ?? null;
   const chess = useMemo(() => new Chess(game?.fen), [game?.fen]);
   const playerColor = gameState?.player.color;
-  const inviteUrl = room ? `${window.location.origin}?room=${room.code}` : "";
+  const opponent = user && room ? (room.hostId === user.id ? room.guest : room.host) : null;
+  const inviteUrl = room && origin ? `${origin}?room=${room.code}` : "";
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem("chess_token");
     const storedUser = window.localStorage.getItem("chess_user");
     const storedTheme = window.localStorage.getItem("chess_theme") as ThemeMode | null;
     const inviteCode = new URLSearchParams(window.location.search).get("room");
+
+    setOrigin(window.location.origin);
 
     if (storedToken && storedUser) {
       setToken(storedToken);
@@ -241,11 +245,15 @@ export function ChessApp() {
 
   return (
     <main className="shell">
-      <section className="topbar">
-        <div>
-          <h1>Realtime Chess</h1>
-          <p>{statusMessage}</p>
+      <section className="topbar" aria-label="Application header">
+        <div className="brand-block">
+          <div className="brand-mark" aria-hidden="true">♞</div>
+          <div>
+            <p className="eyebrow">Live match room</p>
+            <h1>Realtime Chess</h1>
+          </div>
         </div>
+        <p className="status-pill">{statusMessage}</p>
         <div className="topbar-actions">
           <button
             type="button"
@@ -258,6 +266,7 @@ export function ChessApp() {
           </button>
           {user ? (
             <div className="account">
+              <span className="avatar" aria-hidden="true">{user.username.slice(0, 1).toUpperCase()}</span>
               <span>{user.username}</span>
               <button type="button" onClick={logout}>Sign out</button>
             </div>
@@ -282,33 +291,79 @@ export function ChessApp() {
       ) : (
         <div className="app-grid">
           <section className="controls-panel">
-            <h2>Room</h2>
-            <button type="button" className="primary" onClick={createRoom}>Create room</button>
-            <div className="join-row">
-              <input value={roomCode} onChange={(event) => setRoomCode(event.target.value.toUpperCase())} placeholder="Invite code" />
-              <button type="button" onClick={() => joinRoom()}>Join</button>
+            <div className="panel-heading">
+              <p className="eyebrow">Command</p>
+              <h2>Play Control</h2>
             </div>
+
+            <div className="profile-card">
+              <span className="avatar large" aria-hidden="true">{user.username.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{user.username}</strong>
+                <span>{user.rating} rating</span>
+              </div>
+            </div>
+
+            <div className="record-grid" aria-label="Player record">
+              <Stat label="Wins" value={user.wins} />
+              <Stat label="Draws" value={user.draws} />
+              <Stat label="Losses" value={user.losses} />
+            </div>
+
+            <div className="room-actions">
+              <button type="button" className="primary" onClick={createRoom}>Create room</button>
+              <div className="join-row">
+                <input value={roomCode} onChange={(event) => setRoomCode(event.target.value.toUpperCase())} placeholder="Invite code" />
+                <button type="button" onClick={() => joinRoom()}>Join</button>
+              </div>
+            </div>
+
             {room ? (
               <div className="room-card">
-                <span className="label">Code</span>
-                <strong>{room.code}</strong>
-                <span className="label">Players</span>
-                <p>{room.host.username} vs {room.guest?.username ?? "Waiting..."}</p>
-                <span className="label">Invite</span>
-                <input readOnly value={inviteUrl} onFocus={(event) => event.currentTarget.select()} />
-                <button type="button" disabled={game?.status !== "IN_PROGRESS"} onClick={resign}>Resign</button>
+                <div className="room-code">
+                  <span className="label">Room code</span>
+                  <strong>{room.code}</strong>
+                </div>
+                <div className="room-meta">
+                  <span className="label">Players</span>
+                  <p>{room.host.username} vs {room.guest?.username ?? "Waiting for opponent"}</p>
+                </div>
+                <label>
+                  <span className="label">Invite link</span>
+                  <input readOnly value={inviteUrl} onFocus={(event) => event.currentTarget.select()} />
+                </label>
+                <button type="button" className="danger-button" disabled={game?.status !== "IN_PROGRESS"} onClick={resign}>Resign game</button>
               </div>
             ) : null}
+
+            <Leaderboard users={leaderboard} />
           </section>
 
           <section className="board-panel">
-            <GameStatus state={gameState} />
-            <ChessBoard
-              chess={chess}
-              selectedSquare={selectedSquare}
-              playerColor={playerColor ?? "white"}
-              legalTargets={selectedSquare ? legalMovesFor(selectedSquare).map((move) => move.to) : []}
-              onSquareClick={handleSquareClick}
+            <div className="board-header">
+              <GameStatus state={gameState} />
+              <span className="turn-badge">{playerColor ? `You play ${playerColor}` : "Spectator setup"}</span>
+            </div>
+            <PlayerStrip
+              label="Opponent"
+              name={opponent?.username ?? "Waiting for opponent"}
+              rating={opponent?.rating}
+              muted={!opponent}
+            />
+            <div className="board-frame">
+              <ChessBoard
+                chess={chess}
+                selectedSquare={selectedSquare}
+                playerColor={playerColor ?? "white"}
+                legalTargets={selectedSquare ? legalMovesFor(selectedSquare).map((move) => move.to) : []}
+                onSquareClick={handleSquareClick}
+              />
+            </div>
+            <PlayerStrip
+              label="You"
+              name={user.username}
+              rating={user.rating}
+              color={playerColor}
             />
           </section>
 
@@ -322,7 +377,6 @@ export function ChessApp() {
               onSubmit={sendChatMessage}
             />
             <MoveList moves={game?.moves ?? []} />
-            <Leaderboard users={leaderboard} />
           </aside>
         </div>
       )}
@@ -344,41 +398,100 @@ interface AuthPanelProps {
 
 function AuthPanel(props: AuthPanelProps) {
   return (
-    <section className="auth-panel">
-      <div className="tabs">
-        <button type="button" className={props.authMode === "login" ? "active" : ""} onClick={() => props.setAuthMode("login")}>Login</button>
-        <button type="button" className={props.authMode === "signup" ? "active" : ""} onClick={() => props.setAuthMode("signup")}>Sign up</button>
+    <section className="auth-layout">
+      <div className="auth-copy">
+        <p className="eyebrow">Play together</p>
+        <h2>Sign in, create a room, and start a live board.</h2>
+        <div className="auth-highlights">
+          <span>Private invite rooms</span>
+          <span>Realtime moves</span>
+          <span>Chat and ratings</span>
+        </div>
       </div>
-      <form onSubmit={props.onSubmit}>
-        <label>
-          Email
-          <input type="email" value={props.email} onChange={(event) => props.setEmail(event.target.value)} required />
-        </label>
-        {props.authMode === "signup" ? (
+
+      <div className="auth-panel">
+        <div className="tabs" role="tablist" aria-label="Authentication mode">
+          <button type="button" className={props.authMode === "login" ? "active" : ""} onClick={() => props.setAuthMode("login")}>Login</button>
+          <button type="button" className={props.authMode === "signup" ? "active" : ""} onClick={() => props.setAuthMode("signup")}>Sign up</button>
+        </div>
+        <form onSubmit={props.onSubmit}>
           <label>
-            Username
-            <input value={props.username} onChange={(event) => props.setUsername(event.target.value)} minLength={3} required />
+            <span>Email</span>
+            <input type="email" value={props.email} onChange={(event) => props.setEmail(event.target.value)} required />
           </label>
-        ) : null}
-        <label>
-          Password
-          <input type="password" value={props.password} onChange={(event) => props.setPassword(event.target.value)} minLength={8} required />
-        </label>
-        <button type="submit" className="primary">{props.authMode === "login" ? "Login" : "Create account"}</button>
-      </form>
+          {props.authMode === "signup" ? (
+            <label>
+              <span>Username</span>
+              <input value={props.username} onChange={(event) => props.setUsername(event.target.value)} minLength={3} required />
+            </label>
+          ) : null}
+          <label>
+            <span>Password</span>
+            <input type="password" value={props.password} onChange={(event) => props.setPassword(event.target.value)} minLength={8} required />
+          </label>
+          <button type="submit" className="primary">{props.authMode === "login" ? "Login" : "Create account"}</button>
+        </form>
+      </div>
     </section>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="stat">
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
   );
 }
 
 function GameStatus({ state }: { state: GameState | null }) {
   if (!state?.room.game) {
-    return <div className="game-status">No active room</div>;
+    return (
+      <div className="game-status">
+        <span>No active room</span>
+        <strong>Ready</strong>
+      </div>
+    );
   }
 
   const game = state.room.game;
   const turn = new Chess(game.fen).turn() === "w" ? "White" : "Black";
-  const text = game.status === "IN_PROGRESS" ? `${turn} to move. You are ${state.player.color}.` : `Game finished: ${game.status.replace("_", " ").toLowerCase()}`;
-  return <div className="game-status">{text}{game.resultReason ? ` (${game.resultReason})` : ""}</div>;
+  const statusText = game.status === "IN_PROGRESS" ? `${turn} to move` : game.status.replace("_", " ").toLowerCase();
+
+  return (
+    <div className="game-status">
+      <span>{game.status === "IN_PROGRESS" ? "Game in progress" : "Game finished"}</span>
+      <strong>{statusText}{game.resultReason ? ` (${game.resultReason})` : ""}</strong>
+    </div>
+  );
+}
+
+function PlayerStrip({
+  label,
+  name,
+  rating,
+  color,
+  muted = false
+}: {
+  label: string;
+  name: string;
+  rating?: number;
+  color?: "white" | "black";
+  muted?: boolean;
+}) {
+  return (
+    <div className={`player-strip ${muted ? "muted" : ""}`}>
+      <div>
+        <span>{label}</span>
+        <strong>{name}</strong>
+      </div>
+      <div className="player-meta">
+        {color ? <span>{color}</span> : null}
+        {rating ? <span>{rating}</span> : null}
+      </div>
+    </div>
+  );
 }
 
 interface ChessBoardProps {
@@ -422,13 +535,17 @@ function ChessBoard({ chess, selectedSquare, playerColor, legalTargets, onSquare
 
 function MoveList({ moves }: { moves: MoveRecord[] }) {
   return (
-    <section>
-      <h2>Moves</h2>
+    <section className="moves-panel">
+      <div className="panel-heading compact">
+        <p className="eyebrow">Notation</p>
+        <h2>Moves</h2>
+      </div>
       <ol className="moves">
         {moves.map((move) => (
           <li key={move.id}>{move.ply}. {move.san}</li>
         ))}
       </ol>
+      {!moves.length ? <p className="empty-note">Moves will appear after the first turn.</p> : null}
     </section>
   );
 }
@@ -452,7 +569,10 @@ function ChatPanel({ currentUserId, messages, value, disabled, onChange, onSubmi
   return (
     <section className="chat-panel">
       <div className="chat-header">
-        <h2>Chat</h2>
+        <div className="panel-heading compact">
+          <p className="eyebrow">Room</p>
+          <h2>Chat</h2>
+        </div>
         <span>{messages.length ? `${messages.length} message${messages.length === 1 ? "" : "s"}` : "Ready"}</span>
       </div>
       <div className="chat-messages" aria-live="polite">
@@ -492,16 +612,20 @@ function ChatPanel({ currentUserId, messages, value, disabled, onChange, onSubmi
 
 function Leaderboard({ users }: { users: User[] }) {
   return (
-    <section>
-      <h2>Leaderboard</h2>
+    <section className="leaderboard-panel">
+      <div className="panel-heading compact">
+        <p className="eyebrow">Rankings</p>
+        <h2>Leaderboard</h2>
+      </div>
       <div className="leaderboard">
         {users.map((entry, index) => (
           <div key={entry.id} className="leader-row">
-            <span>{index + 1}. {entry.username}</span>
+            <span><b>{index + 1}</b> {entry.username}</span>
             <strong>{entry.rating}</strong>
           </div>
         ))}
       </div>
+      {!users.length ? <p className="empty-note">No ranked players yet.</p> : null}
     </section>
   );
 }
