@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomStatus {
+  WAITING
+  ACTIVE
+  FINISHED
+}
+
+enum GameStatus {
+  IN_PROGRESS
+  WHITE_WON
+  BLACK_WON
+  DRAW
+  ABORTED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  wins         Int      @default(0)
+  losses       Int      @default(0)
+  draws        Int      @default(0)
+  rating       Int      @default(1200)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  hostedRooms Room[] @relation("HostedRooms")
+  guestRooms  Room[] @relation("GuestRooms")
+  whiteGames  Game[] @relation("WhiteGames")
+  blackGames  Game[] @relation("BlackGames")
+  wonGames    Game[] @relation("WonGames")
+}
+
+model Room {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  status    RoomStatus @default(WAITING)
+  hostId    String
+  guestId   String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  host  User  @relation("HostedRooms", fields: [hostId], references: [id], onDelete: Cascade)
+  guest User? @relation("GuestRooms", fields: [guestId], references: [id], onDelete: SetNull)
+  game  Game?
+}
+
+model Game {
+  id            String     @id @default(cuid())
+  roomId        String     @unique
+  whitePlayerId String
+  blackPlayerId String?
+  winnerId      String?
+  status        GameStatus @default(IN_PROGRESS)
+  fen           String     @default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+  pgn           String     @default("")
+  resultReason  String?
+  startedAt     DateTime   @default(now())
+  endedAt       DateTime?
+  updatedAt     DateTime   @updatedAt
+
+  room        Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  whitePlayer User   @relation("WhiteGames", fields: [whitePlayerId], references: [id], onDelete: Cascade)
+  blackPlayer User?  @relation("BlackGames", fields: [blackPlayerId], references: [id], onDelete: SetNull)
+  winner      User?  @relation("WonGames", fields: [winnerId], references: [id], onDelete: SetNull)
+  moves       Move[]
+}
+
+model Move {
+  id        String   @id @default(cuid())
+  gameId    String
+  from      String
+  to        String
+  san       String
+  fen       String
+  ply       Int
+  createdAt DateTime @default(now())
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([gameId, ply])
+}

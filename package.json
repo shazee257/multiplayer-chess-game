@@ -1,0 +1,18 @@
+{
+    "name": "multiplayer-chess-game",
+    "private": true,
+    "workspaces": [
+        "backend",
+        "frontend"
+    ],
+    "scripts": {
+        "dev:backend": "npm --workspace backend run start:dev",
+        "dev:frontend": "npm --workspace frontend run dev",
+        "db:up": "docker compose up -d postgres",
+        "db:run": "docker run --name chess_postgres -e POSTGRES_USER=chess -e POSTGRES_PASSWORD=chess -e POSTGRES_DB=chess_game -p 5432:5432 -d postgres:16-alpine",
+        "db:start": "docker start chess_postgres",
+        "db:down": "docker compose down",
+        "db:migrate": "npm --workspace backend run prisma:migrate",
+        "db:studio": "npm --workspace backend run prisma:studio"
+    }
+}
