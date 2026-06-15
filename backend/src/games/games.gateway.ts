@@ -17,6 +17,8 @@ type AuthenticatedSocket = Socket & {
   };
 };
 
+const maxChatMessageLength = 500;
+
 @WebSocketGateway({
   namespace: "games",
   cors: {
@@ -86,6 +88,25 @@ export class GamesGateway implements OnGatewayConnection {
     }
   }
 
+  @SubscribeMessage("chat:send")
+  async sendChatMessage(@ConnectedSocket() client: AuthenticatedSocket, @MessageBody() body: { code: string; message: string }) {
+    try {
+      const code = body.code.toUpperCase();
+      const message = this.normalizeChatMessage(body.message);
+      await this.gamesService.getState(code, client.data.user.id);
+
+      this.server.in(code).emit("chat:message", {
+        id: `${client.id}-${Date.now()}`,
+        roomCode: code,
+        message,
+        sentAt: new Date().toISOString(),
+        sender: client.data.user
+      });
+    } catch (error) {
+      this.emitError(client, error);
+    }
+  }
+
   private extractToken(client: Socket) {
     const authToken = client.handshake.auth?.token;
     if (typeof authToken === "string") {
@@ -99,6 +120,23 @@ export class GamesGateway implements OnGatewayConnection {
   private emitError(client: Socket, error: unknown) {
     const message = error instanceof Error ? error.message : "Something went wrong";
     client.emit("game:error", { message });
+  }
+
+  private normalizeChatMessage(message: string) {
+    if (typeof message !== "string") {
+      throw new Error("Message is required");
+    }
+
+    const normalized = message.trim();
+    if (!normalized) {
+      throw new Error("Message is required");
+    }
+
+    if (normalized.length > maxChatMessageLength) {
+      throw new Error(`Message must be ${maxChatMessageLength} characters or less`);
+    }
+
+    return normalized;
   }
 
   private async broadcastRoomState(code: string) {

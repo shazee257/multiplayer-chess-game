@@ -53,6 +53,14 @@ export interface GameState {
   };
 }
 
+export interface ChatMessage {
+  id: string;
+  roomCode: string;
+  message: string;
+  sentAt: string;
+  sender: User;
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,

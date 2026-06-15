@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Chess, Square } from "chess.js";
 import { io, Socket } from "socket.io-client";
-import { apiRequest, AuthResponse, GameState, MoveRecord, Room, SOCKET_URL, User } from "@/lib/api";
+import { apiRequest, AuthResponse, ChatMessage, GameState, MoveRecord, Room, SOCKET_URL, User } from "@/lib/api";
 
 type AuthMode = "login" | "signup";
 
@@ -34,6 +34,8 @@ export function ChessApp() {
   const [roomCode, setRoomCode] = useState("");
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [leaderboard, setLeaderboard] = useState<User[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [statusMessage, setStatusMessage] = useState("Create or join a room to start playing.");
   const [error, setError] = useState("");
@@ -124,6 +126,7 @@ export function ChessApp() {
     if (!token) return;
 
     socketRef.current?.disconnect();
+    setChatMessages([]);
     const socket = io(`${SOCKET_URL}/games`, {
       auth: { token }
     });
@@ -143,6 +146,10 @@ export function ChessApp() {
       setError(payload.message);
     });
 
+    socket.on("chat:message", (message: ChatMessage) => {
+      setChatMessages((currentMessages) => [...currentMessages, message].slice(-100));
+    });
+
     socketRef.current = socket;
   }
 
@@ -153,6 +160,8 @@ export function ChessApp() {
     setToken(null);
     setUser(null);
     setGameState(null);
+    setChatMessages([]);
+    setChatDraft("");
     setStatusMessage("Signed out.");
   }
 
@@ -186,6 +195,17 @@ export function ChessApp() {
     if (room) {
       socketRef.current?.emit("game:resign", { code: room.code });
     }
+  }
+
+  function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!room || !chatDraft.trim()) return;
+
+    socketRef.current?.emit("chat:send", {
+      code: room.code,
+      message: chatDraft
+    });
+    setChatDraft("");
   }
 
   return (
@@ -251,6 +271,14 @@ export function ChessApp() {
           </section>
 
           <aside className="side-panel">
+            <ChatPanel
+              currentUserId={user.id}
+              messages={chatMessages}
+              value={chatDraft}
+              disabled={!room}
+              onChange={setChatDraft}
+              onSubmit={sendChatMessage}
+            />
             <MoveList moves={game?.moves ?? []} />
             <Leaderboard users={leaderboard} />
           </aside>
@@ -359,6 +387,56 @@ function MoveList({ moves }: { moves: MoveRecord[] }) {
           <li key={move.id}>{move.ply}. {move.san}</li>
         ))}
       </ol>
+    </section>
+  );
+}
+
+interface ChatPanelProps {
+  currentUserId: string;
+  messages: ChatMessage[];
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}
+
+function ChatPanel({ currentUserId, messages, value, disabled, onChange, onSubmit }: ChatPanelProps) {
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
+
+  return (
+    <section className="chat-panel">
+      <h2>Chat</h2>
+      <div className="chat-messages" aria-live="polite">
+        {messages.length ? (
+          messages.map((message) => {
+            const isMine = message.sender.id === currentUserId;
+
+            return (
+              <div key={message.id} className={`chat-message ${isMine ? "mine" : ""}`}>
+                <span>{isMine ? "You" : message.sender.username}</span>
+                <p>{message.message}</p>
+              </div>
+            );
+          })
+        ) : (
+          <p className="chat-empty">No messages yet.</p>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+      <form className="chat-form" onSubmit={onSubmit}>
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={disabled ? "Join a room to chat" : "Message opponent"}
+          maxLength={500}
+          disabled={disabled}
+        />
+        <button type="submit" disabled={disabled || !value.trim()}>Send</button>
+      </form>
     </section>
   );
 }
